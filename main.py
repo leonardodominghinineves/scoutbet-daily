@@ -88,7 +88,7 @@ Regras importantes:
 
 def ask_gemini(prompt):
     """Manda o pedido pra API gratuita do Gemini, com busca no Google ligada."""
-    model = "gemini-2.5-flash-preview"  # modelo gratuito, com cota de busca generosa
+    model = "gemini-2.5-flash"  # modelo gratuito, com cota de busca generosa
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent?key={GEMINI_API_KEY}"
