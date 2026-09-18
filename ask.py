@@ -2,11 +2,11 @@ import os
 
 import requests
 
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-MODEL = "gemini-flash-latest"
+MODEL = "openai/gpt-oss-20b"
 
 # Metodologia completa de escanteios (usada quando a pergunta é sobre esse mercado)
 METODOLOGIA_ESCANTEIOS = """Você é um analista especialista em escanteios de futebol. Seja
@@ -56,32 +56,36 @@ def eh_sobre_escanteios(texto):
     return any(p in texto.lower() for p in palavras)
 
 
-def ask_gemini(pergunta_usuario, contexto_sistema):
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{MODEL}:generateContent?key={GEMINI_API_KEY}"
-    )
-    prompt_completo = f"{contexto_sistema}\n\nPergunta do usuário: {pergunta_usuario}"
+def ask_groq(pergunta_usuario, contexto_sistema):
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    mensagens = [
+        {"role": "system", "content": contexto_sistema},
+        {"role": "user", "content": pergunta_usuario},
+    ]
 
     def chamar(usar_busca):
-        body = {"contents": [{"parts": [{"text": prompt_completo}]}]}
+        body = {"model": MODEL, "messages": mensagens, "max_completion_tokens": 2048}
         if usar_busca:
-            body["tools"] = [{"google_search": {}}]
-        resp = requests.post(url, json=body, timeout=120)
+            body["tool_choice"] = "required"
+            body["tools"] = [{"type": "browser_search"}]
+        resp = requests.post(url, headers=headers, json=body, timeout=120)
         resp.raise_for_status()
         data = resp.json()
-        candidatos = data.get("candidates", [])
-        if not candidatos:
+        escolhas = data.get("choices", [])
+        if not escolhas:
             return None
-        partes = candidatos[0]["content"]["parts"]
-        return "\n".join(p.get("text", "") for p in partes if "text" in p).strip()
+        return (escolhas[0]["message"]["content"] or "").strip()
 
     try:
         resultado = chamar(usar_busca=True)
         if resultado:
             return resultado
     except requests.exceptions.HTTPError as e:
-        if e.response is not None and e.response.status_code != 429:
+        if e.response is not None and e.response.status_code not in (429, 503):
             raise
 
     aviso = "⚠️ Busca na web indisponível agora, respondendo com conhecimento geral.\n\n"
@@ -115,7 +119,7 @@ def main():
             continue
 
         contexto = METODOLOGIA_ESCANTEIOS if eh_sobre_escanteios(texto) else PROMPT_GERAL
-        resposta = ask_gemini(texto, contexto)
+        resposta = ask_groq(texto, contexto)
         send_telegram(resposta)
 
     clear_updates(last_update_id)
