@@ -10,8 +10,9 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 # Competições cobertas pelo football-data.org gratuito (dado estruturado e confiável).
 # BSA = Brasileirão | CL = Champions League | PL = Premier League
-# FL1 = Ligue 1 | PD = La Liga
-COMPETITION_CODES = ["BSA", "CL", "PL", "FL1", "PD"]
+# Reduzido pra 3 ligas por dia pra economizar tokens na busca. Pra incluir
+# mais, adicione "FL1" (Ligue 1) ou "PD" (La Liga) na lista abaixo.
+COMPETITION_CODES = ["BSA", "CL", "PL"]
 
 # Libertadores e Sul-Americana não existem no plano gratuito do football-data.org,
 # então pedimos pro Gemini procurar esses jogos direto na web.
@@ -65,21 +66,12 @@ Para cada jogo com informação confiável o suficiente, produza:
    comparada com a odds implícita de mercado se encontrar
 2. Mercado de gols (over/under 2.5): sua estimativa, baseada no histórico
    recente de gols marcados/sofridos dos dois times
-3. Mercado de escanteios — use esta metodologia:
-   - Calcule Expected Corners do mandante e do visitante combinando: ataque
-     da equipe (peso maior no mando: 60% casa/fora + 40% geral) e escanteios
-     concedidos pelo adversário nesse mesmo contexto
-   - Pondere forma recente assim: temporada/contexto 40%, últimos 10 jogos
-     35%, últimos 5 jogos 25% — nunca decida só pelos últimos 5
-   - Head-to-head tem peso baixo (máximo 5%), nunca deixe H2H antigo dominar
-   - Estime probabilidade para as linhas de Over/Under mais próximas do
-     Expected Total (geralmente entre 8.5 e 11.5), sem forçar todas as linhas
-   - Se tiver odd disponível, calcule EV = (probabilidade × odd) - 1
-   - Só aponte uma recomendação de escanteios quando houver EDGE real (diferença
-     relevante entre sua probabilidade estimada e a implícita na odd). Se a
-     amostra for insuficiente, os dados forem conflitantes, ou a diferença for
-     pequena, responda "SEM EDGE CLARO" para esse jogo — não force indicação
-   - Nunca use "certeza" ou "garantido"
+3. Mercado de escanteios — Expected Corners = ataque da equipe (peso maior
+   casa/fora: 60/40) + escanteios concedidos pelo adversário no mesmo
+   contexto. Forma recente: temporada 40%, últimos 10 jogos 35%, últimos 5
+   25%. H2H pesa pouco (máx 5%). Estime só as linhas Over/Under próximas do
+   Expected Total. Se tiver odd, calcule EV. Só recomende com EDGE real
+   (diferença relevante vs. odd); senão, "SEM EDGE CLARO" — não force.
 4. Um nível de confiança por mercado analisado: Alta, Média-Alta ou Média —
    só use "Alta" quando a diferença entre sua estimativa e a odds de mercado
    for grande E você tiver boa base de informação
@@ -131,7 +123,7 @@ def ask_groq(prompt):
         if resultado:
             return resultado
     except requests.exceptions.HTTPError as e:
-        if e.response is not None and e.response.status_code not in (429, 503):
+        if e.response is not None and e.response.status_code not in (429, 503, 524):
             raise  # erro diferente de cota/instabilidade, não adianta tentar de novo
 
     aviso = (
