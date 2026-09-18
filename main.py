@@ -4,7 +4,7 @@ from datetime import date
 import requests
 
 FOOTBALL_API_KEY = os.environ["FOOTBALL_API_KEY"]
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
@@ -97,39 +97,41 @@ Regras importantes:
 """
 
 
-def ask_gemini(prompt):
-    """Manda o pedido pra API gratuita do Gemini. Tenta com busca no Google
-    ligada primeiro; se a cota de busca estiver travada (comum no plano
-    gratuito), cai automaticamente pra uma análise sem busca, pra garantir
-    que a mensagem sempre chegue."""
-    model = "gemini-flash-latest"  # modelo liberado no plano gratuito da conta
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{model}:generateContent?key={GEMINI_API_KEY}"
-    )
+def ask_groq(prompt):
+    """Manda o pedido pra API gratuita do Groq, com busca na web embutida
+    (modelo openai/gpt-oss-20b). Se a busca falhar, tenta de novo sem ela,
+    pra garantir que a mensagem sempre chegue."""
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
 
     def chamar(usar_busca):
-        body = {"contents": [{"parts": [{"text": prompt}]}]}
+        body = {
+            "model": "openai/gpt-oss-20b",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_completion_tokens": 2048,
+        }
         if usar_busca:
-            body["tools"] = [{"google_search": {}}]
-        resp = requests.post(url, json=body, timeout=120)
+            body["tool_choice"] = "required"
+            body["tools"] = [{"type": "browser_search"}]
+        resp = requests.post(url, headers=headers, json=body, timeout=120)
         resp.raise_for_status()
         data = resp.json()
-        candidatos = data.get("candidates", [])
-        if not candidatos:
+        escolhas = data.get("choices", [])
+        if not escolhas:
             return None
-        partes = candidatos[0]["content"]["parts"]
-        return "\n".join(p.get("text", "") for p in partes if "text" in p).strip()
+        return (escolhas[0]["message"]["content"] or "").strip()
 
     try:
         resultado = chamar(usar_busca=True)
         if resultado:
             return resultado
     except requests.exceptions.HTTPError as e:
-        if e.response is not None and e.response.status_code != 429:
-            raise  # erro diferente de cota, não adianta tentar de novo
+        if e.response is not None and e.response.status_code not in (429, 503):
+            raise  # erro diferente de cota/instabilidade, não adianta tentar de novo
 
-    # Fallback: sem busca na web (cota de grounding pode estar travada hoje)
     aviso = (
         "⚠️ Hoje a busca na web não estava disponível, então esta análise "
         "usa só o conhecimento geral da IA, sem dados em tempo real.\n\n"
@@ -152,7 +154,7 @@ def send_telegram(text):
 def main():
     matches = get_fixtures()
     prompt = build_prompt(matches)
-    analise = ask_gemini(prompt)
+    analise = ask_groq(prompt)
     send_telegram(analise)
 
 
