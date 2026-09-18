@@ -65,10 +65,21 @@ Para cada jogo com informação confiável o suficiente, produza:
    comparada com a odds implícita de mercado se encontrar
 2. Mercado de gols (over/under 2.5): sua estimativa, baseada no histórico
    recente de gols marcados/sofridos dos dois times
-3. Mercado de escanteios (over/under, geralmente linha 9.5 ou 10.5): sua
-   estimativa, baseada no estilo de jogo e média de escanteios recentes dos
-   times — deixe claro que esse mercado tem menos dado disponível e por isso
-   a confiança tende a ser mais baixa
+3. Mercado de escanteios — use esta metodologia:
+   - Calcule Expected Corners do mandante e do visitante combinando: ataque
+     da equipe (peso maior no mando: 60% casa/fora + 40% geral) e escanteios
+     concedidos pelo adversário nesse mesmo contexto
+   - Pondere forma recente assim: temporada/contexto 40%, últimos 10 jogos
+     35%, últimos 5 jogos 25% — nunca decida só pelos últimos 5
+   - Head-to-head tem peso baixo (máximo 5%), nunca deixe H2H antigo dominar
+   - Estime probabilidade para as linhas de Over/Under mais próximas do
+     Expected Total (geralmente entre 8.5 e 11.5), sem forçar todas as linhas
+   - Se tiver odd disponível, calcule EV = (probabilidade × odd) - 1
+   - Só aponte uma recomendação de escanteios quando houver EDGE real (diferença
+     relevante entre sua probabilidade estimada e a implícita na odd). Se a
+     amostra for insuficiente, os dados forem conflitantes, ou a diferença for
+     pequena, responda "SEM EDGE CLARO" para esse jogo — não force indicação
+   - Nunca use "certeza" ou "garantido"
 4. Um nível de confiança por mercado analisado: Alta, Média-Alta ou Média —
    só use "Alta" quando a diferença entre sua estimativa e a odds de mercado
    for grande E você tiver boa base de informação
