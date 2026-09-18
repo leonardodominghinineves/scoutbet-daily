@@ -116,7 +116,7 @@ def ask_groq(prompt):
         if usar_busca:
             body["tool_choice"] = "required"
             body["tools"] = [{"type": "browser_search"}]
-        resp = requests.post(url, headers=headers, json=body, timeout=120)
+        resp = requests.post(url, headers=headers, json=body, timeout=280)
         if not resp.ok:
             print(f"Groq respondeu {resp.status_code}: {resp.text}")
         resp.raise_for_status()
