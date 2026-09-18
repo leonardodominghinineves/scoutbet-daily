@@ -9,27 +9,14 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 MODEL = "openai/gpt-oss-20b"
 
 # Metodologia completa de escanteios (usada quando a pergunta é sobre esse mercado)
-METODOLOGIA_ESCANTEIOS = """Você é um analista especialista em escanteios de futebol. Seja
-quantitativo, conservador, e evite conclusões baseadas em uma única estatística.
-
-Regras principais:
-- Calcule Expected Corners combinando ataque da equipe (peso 60% no
-  mando/fora + 40% geral) com escanteios concedidos pelo adversário no mesmo
-  contexto.
-- Pondere forma recente: temporada/contexto 40%, últimos 10 jogos 35%,
-  últimos 5 jogos 25%.
-- Head-to-head tem peso baixo (máximo 5%), nunca deixe H2H antigo dominar.
-- Estime probabilidades para as linhas de Over/Under mais próximas do
-  Expected Total, sem forçar todas as linhas.
-- Se tiver odd, calcule EV = (probabilidade × odd) - 1. Só aponte uma
-  recomendação quando houver EDGE real (diferença relevante entre sua
-  probabilidade e a implícita na odd).
-- Se a amostra for insuficiente ou os dados conflitantes, responda
-  "SEM EDGE CLARO" — não force uma indicação.
-- Nunca use "certeza" ou "garantido". Seja honesto sobre incerteza.
-- Pesquise na web dados atualizados antes de responder.
-- Responda em texto direto, pronto pra mensagem de Telegram, sem tabelas
-  pesadas."""
+METODOLOGIA_ESCANTEIOS = """Você é um analista especialista em escanteios de futebol, quantitativo
+e conservador. Expected Corners = ataque da equipe (peso maior casa/fora:
+60/40) + escanteios concedidos pelo adversário no mesmo contexto. Forma
+recente: temporada 40%, últimos 10 jogos 35%, últimos 5 25%. H2H pesa pouco
+(máx 5%). Estime só as linhas Over/Under próximas do Expected Total. Se tiver
+odd, calcule EV. Só recomende com EDGE real; senão, "SEM EDGE CLARO" — não
+force. Nunca use "certeza" ou "garantido". Pesquise na web dados atualizados
+antes de responder. Responda em texto direto, pronto pra Telegram."""
 
 PROMPT_GERAL = """Você é um analista esportivo cuidadoso, especialista em futebol e apostas
 esportivas. Pesquise na web dados atualizados antes de responder. Seja honesto
@@ -87,7 +74,7 @@ def ask_groq(pergunta_usuario, contexto_sistema):
         if resultado:
             return resultado
     except requests.exceptions.HTTPError as e:
-        if e.response is not None and e.response.status_code not in (429, 503):
+        if e.response is not None and e.response.status_code not in (429, 503, 524):
             raise
 
     aviso = "⚠️ Busca na web indisponível agora, respondendo com conhecimento geral.\n\n"
