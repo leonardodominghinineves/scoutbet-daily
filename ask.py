@@ -73,6 +73,8 @@ def ask_groq(pergunta_usuario, contexto_sistema):
             body["tool_choice"] = "required"
             body["tools"] = [{"type": "browser_search"}]
         resp = requests.post(url, headers=headers, json=body, timeout=120)
+        if not resp.ok:
+            print(f"Groq respondeu {resp.status_code}: {resp.text}")
         resp.raise_for_status()
         data = resp.json()
         escolhas = data.get("choices", [])
