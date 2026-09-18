@@ -87,24 +87,44 @@ Regras importantes:
 
 
 def ask_gemini(prompt):
-    """Manda o pedido pra API gratuita do Gemini, com busca no Google ligada."""
-    model = "gemini-flash-latest"  # modelo estável, liberado no plano gratuito
+    """Manda o pedido pra API gratuita do Gemini. Tenta com busca no Google
+    ligada primeiro; se a cota de busca estiver travada (comum no plano
+    gratuito), cai automaticamente pra uma análise sem busca, pra garantir
+    que a mensagem sempre chegue."""
+    model = "gemini-flash-latest"  # modelo liberado no plano gratuito da conta
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent?key={GEMINI_API_KEY}"
     )
-    body = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "tools": [{"google_search": {}}],
-    }
-    resp = requests.post(url, json=body, timeout=120)
-    resp.raise_for_status()
-    data = resp.json()
-    candidatos = data.get("candidates", [])
-    if not candidatos:
-        return "Não consegui gerar a análise hoje."
-    partes = candidatos[0]["content"]["parts"]
-    return "\n".join(p.get("text", "") for p in partes if "text" in p).strip()
+
+    def chamar(usar_busca):
+        body = {"contents": [{"parts": [{"text": prompt}]}]}
+        if usar_busca:
+            body["tools"] = [{"google_search": {}}]
+        resp = requests.post(url, json=body, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
+        candidatos = data.get("candidates", [])
+        if not candidatos:
+            return None
+        partes = candidatos[0]["content"]["parts"]
+        return "\n".join(p.get("text", "") for p in partes if "text" in p).strip()
+
+    try:
+        resultado = chamar(usar_busca=True)
+        if resultado:
+            return resultado
+    except requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code != 429:
+            raise  # erro diferente de cota, não adianta tentar de novo
+
+    # Fallback: sem busca na web (cota de grounding pode estar travada hoje)
+    aviso = (
+        "⚠️ Hoje a busca na web não estava disponível, então esta análise "
+        "usa só o conhecimento geral da IA, sem dados em tempo real.\n\n"
+    )
+    resultado = chamar(usar_busca=False)
+    return aviso + (resultado or "Não consegui gerar a análise hoje.")
 
 
 def send_telegram(text):
