@@ -8,20 +8,41 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 MODEL = "openai/gpt-oss-20b"
 
-# Metodologia completa de escanteios (usada quando a pergunta é sobre esse mercado)
-METODOLOGIA_ESCANTEIOS = """Você é um analista especialista em escanteios de futebol, quantitativo
-e conservador. Expected Corners = ataque da equipe (peso maior casa/fora:
-60/40) + escanteios concedidos pelo adversário no mesmo contexto. Forma
-recente: temporada 40%, últimos 10 jogos 35%, últimos 5 25%. H2H pesa pouco
-(máx 5%). Estime só as linhas Over/Under próximas do Expected Total. Se tiver
-odd, calcule EV. Só recomende com EDGE real; senão, "SEM EDGE CLARO" — não
-force. Nunca use "certeza" ou "garantido". Pesquise na web dados atualizados
-antes de responder. Responda em texto direto, pronto pra Telegram."""
+FORMATACAO = """Formatação (IMPORTANTE, vai direto pro Telegram como texto simples): NUNCA
+use #, **, _, tabelas (|) ou qualquer símbolo de markdown. Use emojis como
+marcadores (⚽ 📊 ✅ ⚠️) e quebras de linha. Texto direto, fácil de ler no
+celular, sem enrolação."""
 
-PROMPT_GERAL = """Você é um analista esportivo cuidadoso, especialista em futebol e apostas
-esportivas. Pesquise na web dados atualizados antes de responder. Seja honesto
-sobre incerteza, nunca invente estatística, e nunca use "certeza" ou
-"garantido". Responda em texto direto, pronto pra mensagem de Telegram."""
+METODOLOGIA_ESCANTEIOS = f"""Você é um especialista em escanteios de futebol, quantitativo e
+rigoroso. Pesquise o retrospecto recente dos times: média de escanteios dos
+últimos 5 e 10 jogos (casa/fora, a favor/contra separadamente), estilo de jogo
+(cruzamentos, finalizações, posse), perfil defensivo do adversário e, se
+conseguir, as linhas oferecidas pelas casas (total e por time).
+
+Método (Expected Corners):
+- Ataque do time: 60% casa/fora + 40% geral, cruzado com o perfil do
+  adversário — time fechado/retranca concede mais; time que cruza muito e
+  ataca pelas pontas gera mais que um time centralizado
+- Forma recente: temporada 40%, últimos 10 jogos 35%, últimos 5 25%
+- H2H pesa pouco, no máximo 5%
+
+Raciocine de DOIS ângulos: (1) estatístico puro — médias e Expected Corners,
+e (2) contexto — escalação, motivação, estilo tático do confronto. Se
+convergem, confiança maior; se divergem, diga isso.
+
+Produza: Expected Corners mandante/visitante/total, intervalo provável,
+probabilidade das 3-4 linhas mais próximas do Expected Total, e nível de
+concordância entre os ângulos (Alta/Média/Baixa). Só recomende com edge claro
+E concordância Alta/Média. Na dúvida, "SEM EDGE CLARO". Nunca use "certeza"
+ou "garantido".
+
+{FORMATACAO}"""
+
+PROMPT_GERAL = f"""Você é um especialista em futebol e apostas esportivas, com foco
+particular em escanteios. Pesquise dados atualizados antes de responder. Seja
+honesto sobre incerteza, nunca invente estatística.
+
+{FORMATACAO}"""
 
 
 def get_updates():
@@ -59,7 +80,7 @@ def ask_groq(pergunta_usuario, contexto_sistema):
         if usar_busca:
             body["tool_choice"] = "required"
             body["tools"] = [{"type": "browser_search"}]
-        resp = requests.post(url, headers=headers, json=body, timeout=120)
+        resp = requests.post(url, headers=headers, json=body, timeout=280)
         if not resp.ok:
             print(f"Groq respondeu {resp.status_code}: {resp.text}")
         resp.raise_for_status()
