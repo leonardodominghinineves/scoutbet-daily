@@ -10,13 +10,8 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 # Competições cobertas pelo football-data.org gratuito (dado estruturado e confiável).
 # BSA = Brasileirão | CL = Champions League | PL = Premier League
-# Reduzido pra 3 ligas por dia pra economizar tokens na busca. Pra incluir
-# mais, adicione "FL1" (Ligue 1) ou "PD" (La Liga) na lista abaixo.
+# Pra incluir mais, adicione "FL1" (Ligue 1) ou "PD" (La Liga) na lista abaixo.
 COMPETITION_CODES = ["BSA", "CL", "PL"]
-
-# Libertadores e Sul-Americana não existem no plano gratuito do football-data.org,
-# então pedimos pro Gemini procurar esses jogos direto na web.
-COMPETICOES_VIA_WEB = ["Copa Libertadores", "Copa Sul-Americana"]
 
 
 def get_fixtures():
@@ -36,7 +31,7 @@ def get_fixtures():
 
 
 def build_prompt(matches):
-    """Monta o pedido de análise para a IA."""
+    """Monta o pedido de análise de escanteios pra IA."""
     lines = []
     for m in matches:
         home = m["homeTeam"]["name"]
@@ -44,55 +39,65 @@ def build_prompt(matches):
         competicao = m["competition"]["name"]
         hora = m["utcDate"]
         lines.append(f"- [{competicao}] {home} x {away} ({hora} UTC)")
-    matches_text = "\n".join(lines) if lines else "(nenhum jogo encontrado nas ligas com dado estruturado)"
+    matches_text = "\n".join(lines) if lines else "(nenhum jogo hoje nas ligas cobertas)"
 
-    competicoes_web = ", ".join(COMPETICOES_VIA_WEB)
+    return f"""Você é um especialista em escanteios de futebol, quantitativo e rigoroso.
+Hoje é {date.today().isoformat()}.
 
-    return f"""Você é um analista esportivo cuidadoso. Hoje é {date.today().isoformat()}.
-
-Jogos confirmados (dado estruturado):
+Jogos de hoje:
 {matches_text}
 
-Além desses, pesquise na web se hoje tem jogos de: {competicoes_web}.
-Se encontrar, inclua na análise. Se não encontrar nenhum jogo dessas competições
-hoje, não invente — apenas não mencione.
+Para cada jogo, pesquise na web: média de escanteios dos últimos 5 e 10 jogos de
+cada time (casa/fora, a favor/contra separadamente), estilo de jogo (cruzamentos,
+finalizações, posse), perfil defensivo do adversário, desfalques em jogadores de
+ponta/criação, e se conseguir, as linhas de escanteios oferecidas pelas casas de
+apostas.
 
-Para CADA jogo (dos confirmados acima e dos que você achar via busca), pesquise
-na web dados recentes: forma dos times, desfalques, escalação provável, e se
-conseguir, odds atuais em casas de apostas conhecidas.
+Método (Expected Corners):
+- Ataque do time: 60% desempenho casa/fora + 40% geral
+- Cruze com o perfil do adversário: time fechado/retranca tende a conceder mais
+  escanteio; time que cruza muito e ataca pelas pontas gera mais que um time de
+  jogo centralizado — isso pesa mais que posse de bola pura
+- Forma recente: temporada/contexto 40%, últimos 10 jogos 35%, últimos 5 25%
+- H2H pesa pouco, no máximo 5%
 
-Para cada jogo com informação confiável o suficiente, produza:
-1. Mercado de resultado (casa/empate/fora): sua estimativa de probabilidade,
-   comparada com a odds implícita de mercado se encontrar
-2. Mercado de gols (over/under 2.5): sua estimativa, baseada no histórico
-   recente de gols marcados/sofridos dos dois times
-3. Mercado de escanteios — Expected Corners = ataque da equipe (peso maior
-   casa/fora: 60/40) + escanteios concedidos pelo adversário no mesmo
-   contexto. Forma recente: temporada 40%, últimos 10 jogos 35%, últimos 5
-   25%. H2H pesa pouco (máx 5%). Estime só as linhas Over/Under próximas do
-   Expected Total. Se tiver odd, calcule EV. Só recomende com EDGE real
-   (diferença relevante vs. odd); senão, "SEM EDGE CLARO" — não force.
-4. Um nível de confiança por mercado analisado: Alta, Média-Alta ou Média —
-   só use "Alta" quando a diferença entre sua estimativa e a odds de mercado
-   for grande E você tiver boa base de informação
+Para cada jogo, raciocine de DOIS ângulos antes de decidir:
+1. Ângulo estatístico puro — só médias e Expected Corners
+2. Ângulo de contexto — escalação, motivação, estilo tático específico desse confronto
+Se os dois ângulos convergem (ficam próximos), a confiança é maior. Se divergem
+bastante, isso é sinal de incerteza real — diga isso explicitamente.
 
-No final, liste no máximo 3 recomendações no total (juntando todos os jogos e
-mercados), as de maior valor esperado (EV), respeitando um limite de 3 apostas
-por dia.
+Para cada jogo, produza:
+- Expected Corners do mandante, do visitante e o total
+- Intervalo provável (ex: 8 a 13)
+- Probabilidade estimada só das 3-4 linhas de Over mais próximas do Expected
+  Total (ex: Over 8.5, 9.5, 10.5) — não force todas as linhas
+- Nível de concordância entre os dois ângulos de raciocínio: Alta / Média / Baixa
+- Se tiver a odd, calcule o valor esperado (EV)
 
-Regras importantes:
-- Não invente estatística, principalmente em escanteios, que tem menos dado
-  público. Se não achar dado confiável pra um mercado, diga isso e pule ele.
-- Seja honesto sobre o nível de incerteza.
-- Formate a resposta pronta pra mensagem de Telegram: texto direto, pode
-  usar emojis, sem tabelas ou markdown pesado.
+Escanteio tem MUITA variância entre jogos — só recomende quando o edge for claro
+E a concordância entre os ângulos for Alta ou Média. Na dúvida, responda
+"SEM EDGE CLARO" pra esse jogo. É melhor pular que forçar uma indicação fraca.
+Nunca use "certeza" ou "garantido".
+
+No final, destaque no máximo 3 melhores oportunidades do dia.
+
+Formatação (IMPORTANTE, vai direto pro Telegram como texto simples): NUNCA use
+#, **, _, tabelas (|) ou qualquer símbolo de markdown. Use emojis como
+marcadores e quebras de linha. Estruture cada jogo assim:
+
+⚽ Time A x Time B
+📊 Expected: X (casa Y / fora Z) — intervalo X-Y
+Over 8.5: X% | Over 9.5: X% | Over 10.5: X%
+🔎 Concordância: Alta/Média/Baixa
+✅ recomendação (ou ⚠️ sem edge claro)
 """
 
 
 def ask_groq(prompt):
     """Manda o pedido pra API gratuita do Groq, com busca na web embutida
-    (modelo openai/gpt-oss-20b). Se a busca falhar, tenta de novo sem ela,
-    pra garantir que a mensagem sempre chegue."""
+    (modelo openai/gpt-oss-20b). Se a busca falhar por instabilidade, tenta
+    de novo sem ela, pra garantir que a mensagem sempre chegue."""
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
@@ -124,7 +129,7 @@ def ask_groq(prompt):
             return resultado
     except requests.exceptions.HTTPError as e:
         if e.response is not None and e.response.status_code not in (429, 503, 524):
-            raise  # erro diferente de cota/instabilidade, não adianta tentar de novo
+            raise  # erro diferente de instabilidade/cota, não adianta tentar de novo
 
     aviso = (
         "⚠️ Hoje a busca na web não estava disponível, então esta análise "
@@ -137,7 +142,6 @@ def ask_groq(prompt):
 def send_telegram(text):
     """Envia a mensagem final pro seu chat do Telegram."""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    # Telegram limita ~4096 caracteres por mensagem
     text = text[:4000] if text else "Sem análise disponível hoje."
     resp = requests.post(
         url, data={"chat_id": TELEGRAM_CHAT_ID, "text": text}, timeout=30
@@ -147,6 +151,10 @@ def send_telegram(text):
 
 def main():
     matches = get_fixtures()
+    if not matches:
+        send_telegram("⚽ Hoje não tem jogos nas ligas cobertas. Sem análise pra hoje.")
+        return
+
     prompt = build_prompt(matches)
     analise = ask_groq(prompt)
     send_telegram(analise)
