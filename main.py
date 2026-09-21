@@ -111,7 +111,7 @@ def ask_groq(prompt):
             "max_completion_tokens": 2048,
         }
         if usar_busca:
-            body["tool_choice"] = "required"
+            body["tool_choice"] = "auto"
             body["tools"] = [{"type": "browser_search"}]
         resp = requests.post(url, headers=headers, json=body, timeout=280)
         if not resp.ok:
@@ -128,7 +128,7 @@ def ask_groq(prompt):
         if resultado:
             return resultado
     except requests.exceptions.HTTPError as e:
-        if e.response is not None and e.response.status_code not in (429, 503, 524):
+        if e.response is not None and e.response.status_code not in (400, 429, 503, 524):
             raise  # erro diferente de instabilidade/cota, não adianta tentar de novo
 
     aviso = (
