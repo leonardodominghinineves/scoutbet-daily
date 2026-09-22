@@ -1,4 +1,5 @@
 import os
+import re
 
 import requests
 
@@ -8,16 +9,19 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 MODEL = "openai/gpt-oss-20b"
 
-FORMATACAO = """Formatação (IMPORTANTE, vai direto pro Telegram como texto simples): NUNCA
-use #, **, _, tabelas (|) ou qualquer símbolo de markdown. Use emojis como
-marcadores (⚽ 📊 ✅ ⚠️) e quebras de linha. Texto direto, fácil de ler no
-celular, sem enrolação."""
+# Sempre o mesmo especialista em escanteios — não existe mais modo "genérico".
+# Toda pergunta é respondida com foco em aposta de escanteio, nunca lista
+# crua de jogos.
+SISTEMA = """Você é um especialista em apostas de escanteios de futebol, quantitativo
+e rigoroso. Você NUNCA responde com uma lista crua de jogos do dia — isso é
+inútil pra quem quer apostar. Toda resposta precisa ser uma ANÁLISE DE
+APOSTA, mesmo que a pergunta seja genérica (ex: "quais jogos tem hoje" deve
+virar "quais jogos tem hoje QUE VALEM aposta de escanteio").
 
-METODOLOGIA_ESCANTEIOS = f"""Você é um especialista em escanteios de futebol, quantitativo e
-rigoroso. Pesquise o retrospecto recente dos times: média de escanteios dos
-últimos 5 e 10 jogos (casa/fora, a favor/contra separadamente), estilo de jogo
-(cruzamentos, finalizações, posse), perfil defensivo do adversário e, se
-conseguir, as linhas oferecidas pelas casas (total e por time).
+Pra cada jogo que você mencionar, pesquise: média de escanteios dos últimos 5
+e 10 jogos de cada time (casa/fora, a favor/contra separadamente), estilo de
+jogo (cruzamentos, finalizações, posse), perfil defensivo do adversário e, se
+conseguir, as linhas oferecidas pelas casas de apostas.
 
 Método (Expected Corners):
 - Ataque do time: 60% casa/fora + 40% geral, cruzado com o perfil do
@@ -25,24 +29,45 @@ Método (Expected Corners):
   ataca pelas pontas gera mais que um time centralizado
 - Forma recente: temporada 40%, últimos 10 jogos 35%, últimos 5 25%
 - H2H pesa pouco, no máximo 5%
+- Raciocine de dois ângulos (estatístico puro vs. contexto/escalação); se
+  convergem, confiança maior, se divergem, diga isso
 
-Raciocine de DOIS ângulos: (1) estatístico puro — médias e Expected Corners,
-e (2) contexto — escalação, motivação, estilo tático do confronto. Se
-convergem, confiança maior; se divergem, diga isso.
+Cada jogo mencionado PRECISA ter: Expected Corners, retrospecto resumido
+(1-2 linhas), e uma recomendação clara OU "SEM EDGE CLARO" — nunca liste um
+jogo sem essa análise. Se não tiver dado suficiente pra analisar um jogo,
+não o mencione, em vez de listar ele vazio. Nunca use "certeza" ou "garantido".
 
-Produza: Expected Corners mandante/visitante/total, intervalo provável,
-probabilidade das 3-4 linhas mais próximas do Expected Total, e nível de
-concordância entre os ângulos (Alta/Média/Baixa). Só recomende com edge claro
-E concordância Alta/Média. Na dúvida, "SEM EDGE CLARO". Nunca use "certeza"
-ou "garantido".
+A porcentagem de confiança precisa ser a sua estimativa real — nunca arredonde
+pra cima nem exagere pra soar mais convincente. Um "62%" honesto vale mais
+que um "90%" inventado.
 
-{FORMATACAO}"""
+Exemplo do padrão esperado (siga essa estrutura, adapte os números):
+⚽ Palmeiras x Grêmio
+📊 Expected: 10.4 (casa 6.2 / fora 4.2) — Palmeiras crava muito e joga aberto
+em casa, Grêmio concede bastante fora
+🔎 Concordância: Alta
 
-PROMPT_GERAL = f"""Você é um especialista em futebol e apostas esportivas, com foco
-particular em escanteios. Pesquise dados atualizados antes de responder. Seja
-honesto sobre incerteza, nunca invente estatística.
+🎯 APOSTA DO DIA
+Over 9.5 escanteios — 74% de chance
 
-{FORMATACAO}"""
+(Se não houver edge claro em nenhum jogo, use "🚫 SEM APOSTA CLARA — dado
+insuficiente ou mercado bem precificado" em vez do bloco acima.)
+
+Formatação (IMPORTANTE, vai direto pro Telegram como texto simples): NUNCA
+use #, *, _, colchetes de citação (【】) ou qualquer símbolo de markdown.
+Use emojis como marcadores (⚽ 📊 🔎 🎯 🚫) e quebras de linha. Texto direto,
+fácil de ler no celular."""
+
+
+def limpar_formatacao(texto):
+    """Remove qualquer sujeira de markdown ou citação que o modelo tenha
+    deixado passar, mesmo indo contra a instrução do prompt."""
+    if not texto:
+        return texto
+    texto = re.sub(r"【[^】]*】", "", texto)  # citações tipo 【site†L12-L18】
+    texto = texto.replace("**", "").replace("##", "").replace("#", "")
+    texto = re.sub(r"\n{3,}", "\n\n", texto)  # some com linhas em branco sobrando
+    return texto.strip()
 
 
 def get_updates():
@@ -59,19 +84,14 @@ def clear_updates(last_update_id):
     requests.get(url, params={"offset": last_update_id + 1, "timeout": 0}, timeout=30)
 
 
-def eh_sobre_escanteios(texto):
-    palavras = ["escanteio", "corner", "córner"]
-    return any(p in texto.lower() for p in palavras)
-
-
-def ask_groq(pergunta_usuario, contexto_sistema):
+def ask_groq(pergunta_usuario):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json",
     }
     mensagens = [
-        {"role": "system", "content": contexto_sistema},
+        {"role": "system", "content": SISTEMA},
         {"role": "user", "content": pergunta_usuario},
     ]
 
@@ -93,14 +113,14 @@ def ask_groq(pergunta_usuario, contexto_sistema):
     try:
         resultado = chamar(usar_busca=True)
         if resultado:
-            return resultado
+            return limpar_formatacao(resultado)
     except requests.exceptions.HTTPError as e:
         if e.response is not None and e.response.status_code not in (400, 429, 503, 524):
             raise
 
     aviso = "⚠️ Busca na web indisponível agora, respondendo com conhecimento geral.\n\n"
     resultado = chamar(usar_busca=False)
-    return aviso + (resultado or "Não consegui responder agora, tenta de novo.")
+    return limpar_formatacao(aviso + (resultado or "Não consegui responder agora, tenta de novo."))
 
 
 def send_telegram(text):
@@ -128,8 +148,7 @@ def main():
         if not texto or chat_id != str(TELEGRAM_CHAT_ID):
             continue
 
-        contexto = METODOLOGIA_ESCANTEIOS if eh_sobre_escanteios(texto) else PROMPT_GERAL
-        resposta = ask_groq(texto, contexto)
+        resposta = ask_groq(texto)
         send_telegram(resposta)
 
     clear_updates(last_update_id)
