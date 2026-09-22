@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import date
 
 import requests
@@ -78,20 +79,45 @@ Para cada jogo, produza:
 Escanteio tem MUITA variância entre jogos — só recomende quando o edge for claro
 E a concordância entre os ângulos for Alta ou Média. Na dúvida, responda
 "SEM EDGE CLARO" pra esse jogo. É melhor pular que forçar uma indicação fraca.
-Nunca use "certeza" ou "garantido".
+Nunca use "certeza" ou "garantido". A porcentagem de confiança precisa ser a
+sua estimativa real — nunca arredonde pra cima nem exagere pra soar mais
+convincente. Um "62%" honesto vale mais que um "90%" inventado.
 
-No final, destaque no máximo 3 melhores oportunidades do dia.
+No final, destaque no máximo 3 melhores oportunidades do dia. NUNCA responda
+com uma lista crua de jogos sem análise — se não tiver dado suficiente pra
+analisar um jogo, não o mencione, em vez de listar ele vazio.
 
 Formatação (IMPORTANTE, vai direto pro Telegram como texto simples): NUNCA use
-#, **, _, tabelas (|) ou qualquer símbolo de markdown. Use emojis como
-marcadores e quebras de linha. Estruture cada jogo assim:
+#, *, _, colchetes de citação (【】) ou qualquer símbolo de markdown. Use
+emojis como marcadores e quebras de linha. Estruture cada jogo assim:
 
 ⚽ Time A x Time B
 📊 Expected: X (casa Y / fora Z) — intervalo X-Y
 Over 8.5: X% | Over 9.5: X% | Over 10.5: X%
 🔎 Concordância: Alta/Média/Baixa
-✅ recomendação (ou ⚠️ sem edge claro)
+
+Se houver edge claro nesse jogo, adicione um bloco de destaque logo depois,
+exatamente neste formato (a probabilidade tem que ser a mesma que você já
+calculou acima, nunca infle o número só pra parecer mais convincente):
+
+🎯 APOSTA DO DIA
+Over [linha] escanteios — [confiança real calculada]% de chance
+
+Se não houver edge claro, use este bloco no lugar:
+
+🚫 SEM APOSTA CLARA — dado insuficiente ou mercado bem precificado
 """
+
+
+def limpar_formatacao(texto):
+    """Remove qualquer sujeira de markdown ou citação que o modelo tenha
+    deixado passar, mesmo indo contra a instrução do prompt."""
+    if not texto:
+        return texto
+    texto = re.sub(r"【[^】]*】", "", texto)  # citações tipo 【site†L12-L18】
+    texto = texto.replace("**", "").replace("##", "").replace("#", "")
+    texto = re.sub(r"\n{3,}", "\n\n", texto)
+    return texto.strip()
 
 
 def ask_groq(prompt):
@@ -126,7 +152,7 @@ def ask_groq(prompt):
     try:
         resultado = chamar(usar_busca=True)
         if resultado:
-            return resultado
+            return limpar_formatacao(resultado)
     except requests.exceptions.HTTPError as e:
         if e.response is not None and e.response.status_code not in (400, 429, 503, 524):
             raise  # erro diferente de instabilidade/cota, não adianta tentar de novo
@@ -136,7 +162,7 @@ def ask_groq(prompt):
         "usa só o conhecimento geral da IA, sem dados em tempo real.\n\n"
     )
     resultado = chamar(usar_busca=False)
-    return aviso + (resultado or "Não consegui gerar a análise hoje.")
+    return limpar_formatacao(aviso + (resultado or "Não consegui gerar a análise hoje."))
 
 
 def send_telegram(text):
