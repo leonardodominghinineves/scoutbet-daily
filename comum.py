@@ -52,30 +52,52 @@ def esc(t):
 
 # ---------------------------------------------------------------- IA
 
+# Se um modelo sair do ar ou estourar o limite, tenta o próximo da lista.
+MODELOS_RESERVA = ["llama-3.3-70b-versatile", "openai/gpt-oss-120b", "openai/gpt-oss-20b",
+                   "meta-llama/llama-4-scout-17b-16e-instruct", "llama-3.1-8b-instant"]
+
+
+def _modelos():
+    lst = [LLM_MODEL] + ([] if "groq.com" not in LLM_BASE_URL else MODELOS_RESERVA)
+    vistos = []
+    for m in lst:
+        if m and m not in vistos:
+            vistos.append(m)
+    return vistos
+
+
 def perguntar_ia(sistema, usuario, max_tokens=350, historico=None):
-    """Chamada curta à IA. Retorna None se não tiver chave ou falhar (o bot funciona sem).
+    """Chamada curta à IA. Retorna None se não tiver chave ou todos os modelos falharem.
     historico: lista de {"r": "user"|"bot", "t": texto} com a conversa recente."""
     if not LLM_API_KEY:
+        print("IA desligada: falta GROQ_API_KEY (ou LLM_API_KEY) nos secrets")
         return None
-    try:
-        r = requests.post(
-            f"{LLM_BASE_URL}/chat/completions",
-            headers={"Authorization": f"Bearer {LLM_API_KEY}"},
-            json={"model": LLM_MODEL, "temperature": 0.3, "max_tokens": max_tokens,
-                  "messages": [{"role": "system", "content": sistema}]
-                              + [{"role": "user" if h.get("r") == "user" else "assistant",
-                                  "content": str(h.get("t", ""))[:400]} for h in (historico or [])[-8:]]
-                              + [{"role": "user", "content": usuario}]},
-            timeout=60)
-        if not r.ok:
-            print(f"IA respondeu {r.status_code}: {r.text[:300]}")
-            return None
-        txt = r.json()["choices"][0]["message"]["content"] or ""
-        txt = re.sub(r"【[^】]*】", "", txt).replace("**", "").replace("#", "")
-        return txt.strip() or None
-    except Exception as e:  # noqa: BLE001
-        print(f"IA falhou: {e}")
-        return None
+    mensagens = ([{"role": "system", "content": sistema}]
+                 + [{"role": "user" if h.get("r") == "user" else "assistant",
+                     "content": str(h.get("t", ""))[:400]} for h in (historico or [])[-8:]]
+                 + [{"role": "user", "content": usuario}])
+    for modelo in _modelos():
+        corpo = {"model": modelo, "temperature": 0.4, "max_tokens": max_tokens, "messages": mensagens}
+        if "gpt-oss" in modelo:  # modelos que "pensam" antes: pensa pouco e sobra espaço pra resposta
+            corpo.update(reasoning_effort="low", max_tokens=max_tokens + 500)
+        try:
+            r = requests.post(f"{LLM_BASE_URL}/chat/completions",
+                              headers={"Authorization": f"Bearer {LLM_API_KEY}"}, json=corpo, timeout=60)
+            if r.status_code == 401:
+                print("IA: chave inválida (401). Confira o secret GROQ_API_KEY.")
+                return None
+            if not r.ok:
+                print(f"IA {modelo} respondeu {r.status_code}: {r.text[:300]}")
+                continue
+            txt = r.json()["choices"][0]["message"].get("content") or ""
+            txt = re.sub(r"【[^】]*】", "", txt).replace("**", "").replace("#", "").strip()
+            if txt:
+                print(f"IA ok ({modelo})")
+                return txt
+            print(f"IA {modelo} voltou vazia")
+        except Exception as e:  # noqa: BLE001
+            print(f"IA {modelo} falhou: {e}")
+    return None
 
 
 # ---------------------------------------------------------------- análise
