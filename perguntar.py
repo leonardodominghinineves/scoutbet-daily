@@ -8,10 +8,13 @@ Comandos (não gastam token de IA):
   /ajuda      lista de comandos
 Qualquer outro texto: procura o time/jogo citado e responde com os números + comentário da IA.
 """
+import json
 import os
 import re
 import unicodedata
 from datetime import datetime, timedelta
+
+import requests
 
 import comum
 import dados
@@ -120,9 +123,36 @@ def backtest_txt(partidas):
     return "\n".join(linhas)
 
 
-def resposta_livre(texto, modelo):
+def carregar_historico():
+    try:
+        h = json.loads(os.environ.get("HISTORICO") or "[]")
+        return h if isinstance(h, list) else []
+    except json.JSONDecodeError:
+        return []
+
+
+def lembrar(chat_id):
+    """Manda pro Worker guardar a resposta do bot na memória da conversa."""
+    url, chave = os.environ.get("WORKER_URL", "").rstrip("/"), os.environ.get("WEBHOOK_SECRET", "")
+    if not (url and chave and comum.ENVIADAS):
+        return
+    texto = re.sub(r"<[^>]+>", "", "\n\n".join(comum.ENVIADAS))
+    texto = re.sub(r"\n{3,}", "\n\n", texto)[:600]
+    try:
+        requests.post(f"{url}/lembrar", json={"chat_id": str(chat_id), "texto": texto},
+                      headers={"X-Secret": chave}, timeout=15)
+    except requests.RequestException as e:
+        print(f"memória falhou: {e}")
+
+
+def resposta_livre(texto, modelo, historico=None):
     hoje = datetime.now(dados.BRT).date()
     times = achar_times(texto, modelo.nomes)
+    if not times:  # "e o over 10.5?" -> procura o time nas mensagens anteriores
+        for h in reversed(historico or []):
+            times = achar_times(h.get("t", ""), modelo.nomes)
+            if times:
+                break
     contexto, cartoes = [], []
 
     if times:
@@ -150,25 +180,45 @@ def resposta_livre(texto, modelo):
         if not melhores:
             contexto.append("Hoje o modelo não achou aposta com vantagem clara.")
 
-    sistema = (f"Você é o ScoutBet, especialista em apostas de escanteios. Hoje é {hoje:%d/%m/%Y}. "
-               "Responda em português, direto, no máximo 6 linhas, sem markdown. Use SOMENTE os dados "
-               "fornecidos; se faltar dado, diga que não tem. Nunca invente estatística, escalação ou jogo. "
-               "Probabilidades são do modelo; não aumente. Odd justa = 1/probabilidade; só há valor acima dela. "
-               "Se a pergunta não for sobre futebol/apostas, responda curto e sugira /ajuda.")
-    usuario = "DADOS:\n" + ("\n".join(contexto) or "nenhum") + f"\n\nPERGUNTA: {texto}"
-    ia = comum.perguntar_ia(sistema, usuario, max_tokens=300)
+    hora = datetime.now(dados.BRT).hour
+    sistema = (
+        f"Você é o Scout, um amigo que manja MUITO de apostas em escanteios e conversa pelo Telegram. "
+        f"Agora são {hora}h do dia {hoje:%d/%m/%Y} (Brasília). Fale como gente: português do Brasil, "
+        "informal, caloroso, frases curtas, pode usar gírias de apostador (green, red, over, linha, odd) "
+        "e 1-2 emojis. No máximo 6 linhas, sem markdown. "
+        "Se for só papo (oi, boa noite, valeu, tudo bem?), responda simpático e natural e puxe o assunto "
+        "pros escanteios: comente em 1 frase o melhor jogo dos DADOS, se houver. "
+        "Se for pergunta de aposta, responda como especialista: esperado, linha, probabilidade, odd mínima "
+        "e o porquê. Use SOMENTE os números dos DADOS; se faltar dado, diga numa boa que não tem. Nunca "
+        "invente estatística, escalação, lesão, jogo ou odd da casa, e nunca aumente as probabilidades. "
+        "Se o assunto não tiver nada a ver com futebol, responda curto e com bom humor. "
+        "Nunca prometa lucro; se fizer sentido, lembre de apostar com moderação. "
+        "Você tem as mensagens anteriores da conversa: use-as pra entender referências tipo 'esse jogo', "
+        "'e o outro?', mas os números valem sempre os dos DADOS atuais."
+    )
+    usuario = "DADOS:\n" + ("\n".join(contexto) or "nenhum") + f"\n\nMENSAGEM: {texto}"
+    ia = comum.perguntar_ia(sistema, usuario, max_tokens=300, historico=historico)
 
     partes = cartoes[:]
     if ia:
         partes.append("💬 " + comum.esc(ia))
     elif not cartoes:
-        partes.append("Não achei esse time nas ligas cobertas. Tenta o nome completo, ou manda /hoje.")
+        partes.append("Opa! Tô por aqui 👊 Me pergunta de um jogo (ex: \"Flamengo x Palmeiras vale over?\") "
+                      "ou manda /hoje que eu te passo as melhores de hoje.")
     return "\n\n".join(partes)
 
 
 def main():
-    texto = (os.environ.get("MENSAGEM") or "/hoje").strip()
     chat_id = os.environ.get("CHAT_ID") or comum.TELEGRAM_CHAT_ID
+    try:
+        responder(chat_id)
+    finally:
+        lembrar(chat_id)
+
+
+def responder(chat_id):
+    texto = (os.environ.get("MENSAGEM") or "/hoje").strip()
+    historico = carregar_historico()
     print(f"Pergunta: {texto!r}")
     cmd = norm(texto.split()[0]).strip() if texto.startswith("/") else ""
 
@@ -190,7 +240,7 @@ def main():
         texto_rel, _ = comum.relatorio(comum.analisar(jogos, modelo), dia, modelo)
         return comum.enviar(texto_rel, chat_id)
 
-    comum.enviar(resposta_livre(texto, modelo), chat_id)
+    comum.enviar(resposta_livre(texto, modelo, historico), chat_id)
 
 
 if __name__ == "__main__":

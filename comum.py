@@ -25,8 +25,12 @@ DIAS_SEMANA = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
 
 # ---------------------------------------------------------------- Telegram
 
+ENVIADAS = []  # o que o bot mandou nesta execução (vai pra memória da conversa)
+
+
 def enviar(texto, chat_id=None):
     chat_id = chat_id or TELEGRAM_CHAT_ID
+    ENVIADAS.append(texto)
     partes, atual = [], ""
     for bloco in texto.split("\n\n"):
         if len(atual) + len(bloco) + 2 > 3900:
@@ -48,8 +52,9 @@ def esc(t):
 
 # ---------------------------------------------------------------- IA
 
-def perguntar_ia(sistema, usuario, max_tokens=350):
-    """Chamada curta à IA. Retorna None se não tiver chave ou falhar (o bot funciona sem)."""
+def perguntar_ia(sistema, usuario, max_tokens=350, historico=None):
+    """Chamada curta à IA. Retorna None se não tiver chave ou falhar (o bot funciona sem).
+    historico: lista de {"r": "user"|"bot", "t": texto} com a conversa recente."""
     if not LLM_API_KEY:
         return None
     try:
@@ -57,8 +62,10 @@ def perguntar_ia(sistema, usuario, max_tokens=350):
             f"{LLM_BASE_URL}/chat/completions",
             headers={"Authorization": f"Bearer {LLM_API_KEY}"},
             json={"model": LLM_MODEL, "temperature": 0.3, "max_tokens": max_tokens,
-                  "messages": [{"role": "system", "content": sistema},
-                               {"role": "user", "content": usuario}]},
+                  "messages": [{"role": "system", "content": sistema}]
+                              + [{"role": "user" if h.get("r") == "user" else "assistant",
+                                  "content": str(h.get("t", ""))[:400]} for h in (historico or [])[-8:]]
+                              + [{"role": "user", "content": usuario}]},
             timeout=60)
         if not r.ok:
             print(f"IA respondeu {r.status_code}: {r.text[:300]}")
