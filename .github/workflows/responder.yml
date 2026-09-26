@@ -2,11 +2,11 @@ name: Responder no Telegram
 
 on:
   repository_dispatch:
-    types: [telegram]
+    types: [telegram]        # disparado pelo Cloudflare Worker quando você manda mensagem
   workflow_dispatch:
     inputs:
       mensagem:
-        description: 'Mensagem de teste (ex: /hoje)'
+        description: 'Mensagem de teste (ex: /hoje ou "Flamengo vale over?")'
         default: '/hoje'
 
 jobs:
@@ -27,6 +27,9 @@ jobs:
         env:
           MENSAGEM: ${{ github.event.client_payload.text || inputs.mensagem }}
           CHAT_ID: ${{ github.event.client_payload.chat_id }}
+          HISTORICO: ${{ toJSON(github.event.client_payload.historico) }}
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
